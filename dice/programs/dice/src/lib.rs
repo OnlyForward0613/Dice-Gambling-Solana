@@ -103,24 +103,46 @@ pub mod freelancer {
 
     pub fn deposit_user_sol(
         ctx: Context<DepositUserSol>,
+        escrow_bump: u8,
+        game_bump: u8,
         ex_amount: u64,
         deposit_amount: u64
     ) -> Result<()> {
         let mut user_pool = ctx.accounts.user_pool.load_mut()?;
-        user_pool.sol_amount = ex_amount + deposit_amount;
-
+        let sol_amount = user_pool.sol_amount;
+        if sol_amount > ex_amount {
+            sol_transfer_with_signer(
+                ctx.accounts.escrow_vault.to_account_info(),
+                ctx.accounts.game_vault.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                &[&[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[escrow_bump]]],
+                sol_amount-ex_amount,
+            )?;
+        } else {
+            sol_transfer_with_signer(
+                ctx.accounts.game_vault.to_account_info(),
+                ctx.accounts.escrow_vault.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                &[&[GAME_VAULT.as_bytes(), &[game_bump]]],
+                ex_amount-sol_amount,
+            )?;
+        }
+        
         sol_transfer_user(
             ctx.accounts.user.to_account_info(),
             ctx.accounts.escrow_vault.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
             deposit_amount,
         )?;
-
+        user_pool.sol_amount = ex_amount + deposit_amount;
+        
         Ok(())
     }
 
     pub fn desposit_user_token(
         ctx: Context<DepositUserToken>,
+        escrow_bump: u8,
+        game_bump: u8,
         ex_amount: u64,
         deposit_amount: u64
     ) -> Result<()> {
@@ -134,6 +156,42 @@ pub mod freelancer {
             }
         }
         require!(valid != 0, DiceError::NotRegisteredToken);
+        
+        let token_amount = user_pool.token_amount[(valid-1) as usize];
+        if token_amount > ex_amount {
+            let token_account_info = &mut &ctx.accounts.vault_token_account;
+            let dest_token_account_info = &mut &ctx.accounts.game_token_account;
+            let token_program = &mut &ctx.accounts.token_program;
+            let seeds = &[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[escrow_bump]];
+            let signer = &[&seeds[..]];
+
+            let cpi_accounts = Transfer {
+                from: token_account_info.to_account_info().clone(),
+                to: dest_token_account_info.to_account_info().clone(),
+                authority: ctx.accounts.global_authority.to_account_info()
+            };
+            token::transfer(
+                CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
+                token_amount - ex_amount
+            )?;
+        } else {
+            let token_account_info= &mut &ctx.accounts.game_token_account;
+            let dest_token_account_info = &mut &ctx.accounts.vault_token_account;
+            let token_program = &mut &ctx.accounts.token_program;
+            let seeds = &[GAME_VAULT.as_bytes(), &[game_bump]];
+            let signer = &[&seeds[..]];
+
+            let cpi_accounts = Transfer {
+                from: token_account_info.to_account_info().clone(),
+                to: dest_token_account_info.to_account_info().clone(),
+                authority: ctx.accounts.global_authority.to_account_info()
+            };
+            token::transfer(
+                CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
+                ex_amount - token_amount 
+            )?;
+            
+        }
 
         let token_account_info = &mut &ctx.accounts.user_token_account;
         let dest_token_account_info = &mut &ctx.accounts.vault_token_account;
@@ -157,30 +215,52 @@ pub mod freelancer {
     
     pub fn withdraw_user_sol(
         ctx: Context<WithdrawUserSol>,
+        escrow_bump: u8,
+        game_bump: u8,
         ex_amount: u64,
         withdraw_amount: u64,
-        bump: u8
     ) -> Result<()> {
         require!(ex_amount>withdraw_amount, DiceError::ExceedAmount);
 
         let mut user_pool = ctx.accounts.user_pool.load_mut()?;
-        user_pool.sol_amount = ex_amount - withdraw_amount;
+        let sol_amount = user_pool.sol_amount;
+        
+        if sol_amount > ex_amount {
+            sol_transfer_with_signer(
+                ctx.accounts.escrow_vault.to_account_info(),
+                ctx.accounts.game_vault.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                &[&[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[escrow_bump]]],
+                sol_amount-ex_amount,
+            )?;
+        } else {
+            sol_transfer_with_signer(
+                ctx.accounts.game_vault.to_account_info(),
+                ctx.accounts.escrow_vault.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                &[&[GAME_VAULT.as_bytes(), &[game_bump]]],
+                ex_amount-sol_amount,
+            )?;
+        }
 
         sol_transfer_with_signer(
             ctx.accounts.escrow_vault.to_account_info(),
             ctx.accounts.user.to_account_info(),
             ctx.accounts.system_program.to_account_info(),
-            &[&[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[bump]]],
+            &[&[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[escrow_bump]]],
             withdraw_amount,
         )?;
+
+        user_pool.sol_amount = ex_amount - withdraw_amount;
         Ok(())
     }
 
     pub fn withdraw_user_token(
         ctx: Context<WithdrawUserToken>,
+        escrow_bump: u8,
+        game_bump: u8,
         ex_amount: u64,
         withdraw_amount: u64,
-        bump: u8,
     ) -> Result<()> {
         let mut user_pool = ctx.accounts.user_pool.load_mut()?;
         let global_authority = &mut ctx.accounts.global_authority;
@@ -195,10 +275,46 @@ pub mod freelancer {
         }
         require!(valid != 0, DiceError::NotRegisteredToken);
 
+        let token_amount = user_pool.token_amount[(valid-1) as usize];
+        if token_amount > ex_amount {
+            let token_account_info = &mut &ctx.accounts.vault_token_account;
+            let dest_token_account_info = &mut &ctx.accounts.game_token_account;
+            let token_program = &mut &ctx.accounts.token_program;
+            let seeds = &[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[escrow_bump]];
+            let signer = &[&seeds[..]];
+
+            let cpi_accounts = Transfer {
+                from: token_account_info.to_account_info().clone(),
+                to: dest_token_account_info.to_account_info().clone(),
+                authority: ctx.accounts.global_authority.to_account_info()
+            };
+            token::transfer(
+                CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
+                token_amount - ex_amount
+            )?;
+        } else {
+            let token_account_info= &mut &ctx.accounts.game_token_account;
+            let dest_token_account_info = &mut &ctx.accounts.vault_token_account;
+            let token_program = &mut &ctx.accounts.token_program;
+            let seeds = &[GAME_VAULT.as_bytes(), &[game_bump]];
+            let signer = &[&seeds[..]];
+
+            let cpi_accounts = Transfer {
+                from: token_account_info.to_account_info().clone(),
+                to: dest_token_account_info.to_account_info().clone(),
+                authority: ctx.accounts.global_authority.to_account_info()
+            };
+            token::transfer(
+                CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
+                ex_amount - token_amount 
+            )?;
+            
+        }
+
         let token_account_info = &mut &ctx.accounts.user_token_account;
         let dest_token_account_info = &mut &ctx.accounts.vault_token_account;
         let token_program = &mut &ctx.accounts.token_program;
-        let seeds = &[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[bump]];
+        let seeds = &[ctx.accounts.user.key.as_ref(), ESCROW_VAULT.as_bytes(), &[escrow_bump]];
         let signer = &[&seeds[..]];
 
         let cpi_accounts = Transfer {
@@ -336,6 +452,14 @@ pub struct DepositUserSol<'info> {
         bump,
     )]
     pub escrow_vault: AccountInfo<'info>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(
+        mut,
+        seeds = [GAME_VAULT.as_ref()],
+        bump,
+    )]
+    pub game_vault: AccountInfo<'info>,
     
     #[account(mut)]
     pub user_pool: AccountLoader<'info, UserPool>,
@@ -356,6 +480,14 @@ pub struct DepositUserToken<'info> {
     )]
     pub escrow_vault: AccountInfo<'info>,
 
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(
+        mut,
+        seeds = [GAME_VAULT.as_ref()],
+        bump,
+    )]
+    pub game_vault: AccountInfo<'info>,
+
     #[account(mut)]
     pub user_pool: AccountLoader<'info, UserPool>,
 
@@ -379,6 +511,13 @@ pub struct DepositUserToken<'info> {
         constraint = vault_token_account.owner == *escrow_vault.key,
     )]
     pub vault_token_account: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        constraint = game_token_account.mint == *token_mint.key,
+        constraint = game_token_account.owner == *game_vault.key,
+    )]
+    pub game_token_account: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_mint: AccountInfo<'info>,
@@ -399,6 +538,14 @@ pub struct WithdrawUserSol<'info> {
         bump,
     )]
     pub escrow_vault: AccountInfo<'info>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(
+        mut,
+        seeds = [GAME_VAULT.as_ref()],
+        bump,
+    )]
+    pub game_vault: AccountInfo<'info>,
     
     #[account(mut)]
     pub user_pool: AccountLoader<'info, UserPool>,
@@ -418,6 +565,14 @@ pub struct WithdrawUserToken<'info> {
         bump,
     )]
     pub escrow_vault: AccountInfo<'info>,
+    
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(
+        mut,
+        seeds = [GAME_VAULT.as_ref()],
+        bump,
+    )]
+    pub game_vault: AccountInfo<'info>,
 
     #[account(mut)]
     pub user_pool: AccountLoader<'info, UserPool>,
@@ -442,6 +597,13 @@ pub struct WithdrawUserToken<'info> {
         constraint = vault_token_account.owner == *escrow_vault.key,
     )]
     pub vault_token_account: Box<Account<'info, TokenAccount>>,
+    
+    #[account(
+        mut,
+        constraint = game_token_account.mint == *token_mint.key,
+        constraint = game_token_account.owner == *game_vault.key,
+    )]
+    pub game_token_account: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_mint: AccountInfo<'info>,
