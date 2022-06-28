@@ -1,13 +1,13 @@
 [features]
 seeds = false
-[programs.localnet]
-dice = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+[programs.devnet]
+dice = "77WPfiSfVcYHZQKNUZH6wbB6v1dXieX4upy2UuTMGSj2"
 
 [registry]
 url = "https://anchor.projectserum.com"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "/home/ubuntu/.config/solana/id.json"
 
 [scripts]

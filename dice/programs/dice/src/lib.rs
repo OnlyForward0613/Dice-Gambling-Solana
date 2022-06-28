@@ -15,7 +15,7 @@ use utils::*;
 declare_id!("77WPfiSfVcYHZQKNUZH6wbB6v1dXieX4upy2UuTMGSj2");
 
 #[program]
-pub mod freelancer {
+pub mod dice {
     use super::*;
    
     pub fn initialize(
@@ -97,7 +97,7 @@ pub mod freelancer {
             INIT_DEPOSIT_AMOUNT,
         )?;
         user_pool.user_address = ctx.accounts.user.key();
-        user_pool.sol_amount +=INIT_DEPOSIT_AMOUNT;
+        user_pool.sol_amount += INIT_DEPOSIT_AMOUNT;
         Ok(())
     }
 
@@ -139,7 +139,7 @@ pub mod freelancer {
         Ok(())
     }
 
-    pub fn desposit_user_token(
+    pub fn deposit_user_token(
         ctx: Context<DepositUserToken>,
         escrow_bump: u8,
         game_bump: u8,
@@ -168,7 +168,7 @@ pub mod freelancer {
             let cpi_accounts = Transfer {
                 from: token_account_info.to_account_info().clone(),
                 to: dest_token_account_info.to_account_info().clone(),
-                authority: ctx.accounts.global_authority.to_account_info()
+                authority: ctx.accounts.escrow_vault.to_account_info()
             };
             token::transfer(
                 CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
@@ -184,7 +184,7 @@ pub mod freelancer {
             let cpi_accounts = Transfer {
                 from: token_account_info.to_account_info().clone(),
                 to: dest_token_account_info.to_account_info().clone(),
-                authority: ctx.accounts.global_authority.to_account_info()
+                authority: ctx.accounts.game_vault.to_account_info()
             };
             token::transfer(
                 CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
@@ -286,7 +286,7 @@ pub mod freelancer {
             let cpi_accounts = Transfer {
                 from: token_account_info.to_account_info().clone(),
                 to: dest_token_account_info.to_account_info().clone(),
-                authority: ctx.accounts.global_authority.to_account_info()
+                authority: ctx.accounts.escrow_vault.to_account_info()
             };
             token::transfer(
                 CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
@@ -302,7 +302,7 @@ pub mod freelancer {
             let cpi_accounts = Transfer {
                 from: token_account_info.to_account_info().clone(),
                 to: dest_token_account_info.to_account_info().clone(),
-                authority: ctx.accounts.global_authority.to_account_info()
+                authority: ctx.accounts.game_vault.to_account_info()
             };
             token::transfer(
                 CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
@@ -320,7 +320,7 @@ pub mod freelancer {
         let cpi_accounts = Transfer {
             from: dest_token_account_info.to_account_info().clone(),
             to: token_account_info.to_account_info().clone(),
-            authority: ctx.accounts.global_authority.to_account_info()
+            authority: ctx.accounts.escrow_vault.to_account_info()
         };
         token::transfer(
             CpiContext::new_with_signer(token_program.to_account_info().clone(), cpi_accounts, signer),
@@ -359,6 +359,7 @@ pub struct Initialize<'info> {
     pub global_authority: Account<'info, GlobalPool>,
 
     pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
@@ -433,9 +434,6 @@ pub struct InitUserPool<'info> {
     
     #[account(zero)]
     pub user_pool: AccountLoader<'info, UserPool>,
-
-    /// CHECK: This is not dangerous because we don't read or write from this account
-    pub token_mint: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
